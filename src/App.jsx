@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download, Pencil } from 'lucide-react';
+import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download, Pencil, ExternalLink } from 'lucide-react';
 
 // ============================================================
 // CONFIG - For Vite: change these settings
@@ -428,6 +428,7 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
             <>
               <button onClick={() => { onMarkRead(item.id); onClose(); }} className="flex-1 py-3 rounded-xl bg-green-500 text-white font-medium flex items-center justify-center gap-2"><Check size={18} /> Đã đọc/hát</button>
               <button onClick={() => onToggleFavorite(item.id)} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}><Star size={20} className={item.favorite ? "text-yellow-500 fill-yellow-500" : textSecondary} /></button>
+              <button onClick={() => { const firstLine = item.content.split('\n').find(l => l.trim())?.trim() || ''; window.open(`https://www.google.com/search?q=${encodeURIComponent(item.title + ' ' + firstLine)}`, '_blank'); }} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`} title="Tìm trên Google"><ExternalLink size={20} className="text-blue-500" /></button>
             </>
           )}
         </div>
