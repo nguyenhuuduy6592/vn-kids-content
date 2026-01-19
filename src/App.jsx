@@ -419,7 +419,7 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
               <div className="flex justify-end mb-2">
                 <button
                   onClick={handlePaste}
-                  className={`px-3 py-1.5 rounded-lg ${isDark ? "bg-zinc-800" : "bg-zinc-200"} flex items-center gap-1.5 text-sm ${textSecondary} hover:opacity-80`}
+                  className={`px-3 py-1.5 rounded-lg bg-blue-500 text-white flex items-center gap-1.5 text-sm hover:bg-blue-600 active:bg-blue-700`}
                   title="Dán từ clipboard"
                 >
                   <ClipboardPaste size={14} /> Dán
