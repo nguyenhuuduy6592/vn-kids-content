@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download } from 'lucide-react';
+import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download, Pencil } from 'lucide-react';
 
 // ============================================================
 // CONFIG - For Vite: change these settings
@@ -140,7 +140,8 @@ export default function App() {
   const markRead = (id) => updateContent(c => c.map(i => i.id === id ? { ...i, readCount: i.readCount + 1 } : i));
   const toggleFavorite = (id) => updateContent(c => c.map(i => i.id === id ? { ...i, favorite: !i.favorite } : i));
   const toggleArchive = (id) => updateContent(c => c.map(i => i.id === id ? { ...i, archived: !i.archived } : i));
-  
+  const updateItem = (id, updates) => updateContent(c => c.map(i => i.id === id ? { ...i, ...updates } : i));
+
   const addItem = () => {
     if (!newItem.title.trim() || !newItem.content.trim()) return;
     updateContent(c => [...c, { ...newItem, id: Date.now(), readCount: 0, archived: false, favorite: false }]);
@@ -336,7 +337,7 @@ export default function App() {
 
       <button onClick={() => setShowAdd(true)} className="fixed bottom-6 right-6 w-14 h-14 bg-blue-500 rounded-full shadow-lg flex items-center justify-center text-white z-50"><Plus size={24} /></button>
 
-      {viewItem && <ViewModal item={viewItem} onClose={() => setViewItem(null)} onMarkRead={markRead} onToggleFavorite={toggleFavorite} isDark={isDark} />}
+      {viewItem && <ViewModal item={viewItem} onClose={() => setViewItem(null)} onMarkRead={markRead} onToggleFavorite={toggleFavorite} onUpdateItem={updateItem} setViewItem={setViewItem} isDark={isDark} />}
       {showAdd && <AddModal onAdd={addItem} onClose={() => setShowAdd(false)} newItem={newItem} setNewItem={setNewItem} isDark={isDark} />}
       {showImport && <ImportModal onImport={importSeed} onClose={() => setShowImport(false)} isDark={isDark} />}
     </div>
@@ -346,30 +347,89 @@ export default function App() {
 // ============================================================
 // MODAL COMPONENTS
 // ============================================================
-function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, isDark }) {
+function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, setViewItem, isDark }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(item.title);
+  const [editContent, setEditContent] = useState(item.content);
+
   const cfg = typeConfig[item.type] || typeConfig.poem;
   const bgCard = isDark ? "bg-zinc-900" : "bg-white";
   const textPrimary = isDark ? "text-zinc-100" : "text-zinc-900";
   const textSecondary = isDark ? "text-zinc-400" : "text-zinc-500";
   const border = isDark ? "border-zinc-800" : "border-zinc-200";
-  
+
+  const handleSave = () => {
+    if (!editTitle.trim() || !editContent.trim()) return;
+    onUpdateItem(item.id, { title: editTitle.trim(), content: editContent.trim() });
+    setViewItem({ ...item, title: editTitle.trim(), content: editContent.trim() });
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setEditTitle(item.title);
+    setEditContent(item.content);
+    setIsEditing(false);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50" onClick={isEditing ? undefined : onClose} />
       <div className={`relative w-full max-w-lg max-h-[85vh] ${bgCard} rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col`}>
         <div className={`p-4 border-b ${border} flex items-center justify-between`}>
-          <div className="flex items-center gap-2">
-            <span className={`px-2 py-1 rounded-full text-xs ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
-            <h2 className={`font-semibold text-sm ${textPrimary}`}>{item.title}</h2>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className={`px-2 py-1 rounded-full text-xs ${cfg.bg} ${cfg.color} shrink-0`}>{cfg.label}</span>
+            {isEditing ? (
+              <input
+                type="text"
+                value={editTitle}
+                onChange={e => setEditTitle(e.target.value)}
+                className={`flex-1 px-2 py-1 rounded-lg ${isDark ? "bg-zinc-800" : "bg-zinc-100"} outline-none text-sm font-semibold ${textPrimary}`}
+                placeholder="Tiêu đề..."
+                autoFocus
+              />
+            ) : (
+              <h2 className={`font-semibold text-sm ${textPrimary} truncate`}>{item.title}</h2>
+            )}
           </div>
-          <button onClick={onClose} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}><X size={18} className={textPrimary} /></button>
+          <div className="flex items-center gap-1 shrink-0">
+            {!isEditing && (
+              <button onClick={() => setIsEditing(true)} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}>
+                <Pencil size={16} className={textSecondary} />
+              </button>
+            )}
+            <button onClick={isEditing ? handleCancel : onClose} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}>
+              <X size={18} className={textPrimary} />
+            </button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
-          <pre className={`whitespace-pre-wrap font-sans text-base leading-relaxed ${textPrimary}`}>{item.content}</pre>
+          {isEditing ? (
+            <textarea
+              value={editContent}
+              onChange={e => setEditContent(e.target.value)}
+              className={`w-full h-full min-h-[200px] px-3 py-2 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"} outline-none resize-none text-base leading-relaxed ${textPrimary}`}
+              placeholder="Nội dung..."
+            />
+          ) : (
+            <pre className={`whitespace-pre-wrap font-sans text-base leading-relaxed ${textPrimary}`}>{item.content}</pre>
+          )}
         </div>
         <div className={`p-4 border-t ${border} flex gap-2`}>
-          <button onClick={() => { onMarkRead(item.id); onClose(); }} className="flex-1 py-3 rounded-xl bg-green-500 text-white font-medium flex items-center justify-center gap-2"><Check size={18} /> Đã đọc/hát</button>
-          <button onClick={() => onToggleFavorite(item.id)} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}><Star size={20} className={item.favorite ? "text-yellow-500 fill-yellow-500" : textSecondary} /></button>
+          {isEditing ? (
+            <>
+              <button onClick={handleCancel} className={`flex-1 py-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-200"} font-medium flex items-center justify-center gap-2 ${textPrimary}`}>
+                <X size={18} /> Hủy
+              </button>
+              <button onClick={handleSave} disabled={!editTitle.trim() || !editContent.trim()} className="flex-1 py-3 rounded-xl bg-blue-500 text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50">
+                <Check size={18} /> Lưu
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => { onMarkRead(item.id); onClose(); }} className="flex-1 py-3 rounded-xl bg-green-500 text-white font-medium flex items-center justify-center gap-2"><Check size={18} /> Đã đọc/hát</button>
+              <button onClick={() => onToggleFavorite(item.id)} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}><Star size={20} className={item.favorite ? "text-yellow-500 fill-yellow-500" : textSecondary} /></button>
+            </>
+          )}
         </div>
       </div>
     </div>
