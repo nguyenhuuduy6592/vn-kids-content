@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.svg', 'pwa-192x192.svg', 'pwa-512x512.svg'],
       manifest: {
-        name: 'Nội Dung Trẻ Em Việt Nam',
-        short_name: 'Nội Dung Trẻ Em Việt Nam',
+        name: 'Kho nội dung bé yêu',
+        short_name: 'Kho nội dung bé yêu',
         description: 'Ứng dụng quản lý nội dung bài hát, đồng dao và truyện cho trẻ em Việt Nam',
         theme_color: '#4F46E5',
         background_color: '#ffffff',
