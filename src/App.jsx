@@ -2,82 +2,123 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download, Pencil, ExternalLink, ClipboardPaste } from 'lucide-react';
 
 // ============================================================
-// CONFIG - For Vite: change these settings
+// CONFIG
 // ============================================================
 const CONFIG = {
   STORAGE_KEY: 'vn-kids-content',
+  DEVICE_ID_KEY: 'vn-kids-device-id',
   VERSION: 1,
-  // For Vite: set to '/data/seed.json' and fetch instead
-  USE_EXTERNAL_SEED: false,
-  SEED_URL: null,
+  API_BASE: '/api',
 };
 
 // ============================================================
-// SEED DATA
-// For Claude Artifact: Use Import button to load JSON
-// For Vite: Move to public/data/seed.json and fetch
-// Format: [[id, title, type, content], ...]
-// type: 0=song, 1=poem, 2=story
+// DEVICE ID - Anonymous user tracking
 // ============================================================
+function getDeviceId() {
+  let id = localStorage.getItem(CONFIG.DEVICE_ID_KEY);
+  if (!id) {
+    id = 'device_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+    localStorage.setItem(CONFIG.DEVICE_ID_KEY, id);
+  }
+  return id;
+}
 
 // ============================================================
-// STORAGE LAYER - Uses window.storage (Claude) or localStorage (Vite)
+// STORAGE LAYER - localStorage for offline/fallback
 // ============================================================
 const Storage = {
-  async get(key) {
+  get(key) {
     try {
-      if (window.storage) {
-        const r = await window.storage.get(key);
-        return r?.value ? JSON.parse(r.value) : null;
-      }
       const v = localStorage.getItem(key);
       return v ? JSON.parse(v) : null;
     } catch { return null; }
   },
-  async set(key, value) {
+  set(key, value) {
     try {
-      const json = JSON.stringify(value);
-      if (window.storage) await window.storage.set(key, json);
-      else localStorage.setItem(key, json);
+      localStorage.setItem(key, JSON.stringify(value));
       return true;
     } catch { return false; }
   }
 };
 
 // ============================================================
+// API LAYER - Neon database via Vercel serverless
+// ============================================================
+const API = {
+  async fetchContent(deviceId) {
+    const res = await fetch(`${CONFIG.API_BASE}/content?deviceId=${deviceId}`);
+    if (!res.ok) throw new Error('Failed to fetch content');
+    return res.json();
+  },
+
+  async updateProgress(deviceId, contentId, action, value) {
+    const res = await fetch(`${CONFIG.API_BASE}/progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId, contentId, action, value })
+    });
+    if (!res.ok) throw new Error('Failed to update progress');
+    return res.json();
+  },
+
+  async addContent(title, type, content) {
+    const res = await fetch(`${CONFIG.API_BASE}/content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, type, content })
+    });
+    if (!res.ok) throw new Error('Failed to add content');
+    return res.json();
+  },
+
+  async seedContent(items, deviceId) {
+    const res = await fetch(`${CONFIG.API_BASE}/seed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, deviceId })
+    });
+    if (!res.ok) throw new Error('Failed to seed content');
+    return res.json();
+  }
+};
+
+// ============================================================
 // DATA LAYER
 // ============================================================
-const TYPES = ['song', 'poem', 'story'];
-const expandItem = ([id, title, type, content]) => ({
-  id, title, type: TYPES[type], content, readCount: 0, archived: false, favorite: false
-});
+async function loadData(deviceId) {
+  try {
+    // Try API first
+    const items = await API.fetchContent(deviceId);
+    if (items?.length) {
+      // Transform API response to app format
+      const transformed = items.map(item => ({
+        id: item.id,
+        title: item.title,
+        type: item.type,
+        content: item.content,
+        readCount: item.read_count || 0,
+        favorite: item.favorite || false,
+        archived: item.archived || false
+      }));
+      // Cache locally for offline
+      Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items: transformed });
+      return transformed;
+    }
+  } catch (e) {
+    console.warn('API fetch failed, using local storage:', e);
+  }
 
-async function loadData() {
-  // Try loading user data from storage
-  const stored = await Storage.get(CONFIG.STORAGE_KEY);
+  // Fallback to localStorage
+  const stored = Storage.get(CONFIG.STORAGE_KEY);
   if (stored?.version === CONFIG.VERSION && stored?.items?.length) {
     return stored.items;
   }
-  
-  // For Vite: fetch seed from JSON file
-  if (CONFIG.USE_EXTERNAL_SEED && CONFIG.SEED_URL) {
-    try {
-      const res = await fetch(CONFIG.SEED_URL);
-      const seed = await res.json();
-      if (seed?.length) {
-        const items = seed.map(expandItem);
-        await Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items });
-        return items;
-      }
-    } catch (e) { console.error('Failed to fetch seed:', e); }
-  }
-  
-  // For Claude Artifact: return empty, user will import via UI
+
   return [];
 }
 
-async function saveData(items) {
-  await Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items });
+function saveDataLocal(items) {
+  Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items });
 }
 
 // ============================================================
@@ -100,21 +141,22 @@ export default function App() {
   const [showImport, setShowImport] = useState(false);
   const [newItem, setNewItem] = useState({ title: "", content: "", type: "song" });
   const [theme, setTheme] = useState("light");
+  const [deviceId] = useState(() => getDeviceId());
 
   const isDark = theme === "dark";
 
   // Load data on mount
   useEffect(() => {
-    loadData().then(items => {
+    loadData(deviceId).then(items => {
       setContent(items);
       setLoading(false);
     });
-  }, []);
+  }, [deviceId]);
 
-  // Save on changes (debounced)
+  // Save locally on changes (debounced) - API syncs on actions
   useEffect(() => {
     if (!loading && content.length) {
-      const t = setTimeout(() => saveData(content), 500);
+      const t = setTimeout(() => saveDataLocal(content), 500);
       return () => clearTimeout(t);
     }
   }, [content, loading]);
@@ -137,14 +179,40 @@ export default function App() {
     });
   }, [content, search, filter, showArchived]);
 
-  const markRead = (id) => updateContent(c => c.map(i => i.id === id ? { ...i, readCount: i.readCount + 1 } : i));
-  const toggleFavorite = (id) => updateContent(c => c.map(i => i.id === id ? { ...i, favorite: !i.favorite } : i));
-  const toggleArchive = (id) => updateContent(c => c.map(i => i.id === id ? { ...i, archived: !i.archived } : i));
+  const markRead = (id) => {
+    updateContent(c => c.map(i => i.id === id ? { ...i, readCount: i.readCount + 1 } : i));
+    API.updateProgress(deviceId, id, 'markRead').catch(console.error);
+  };
+
+  const toggleFavorite = (id) => {
+    updateContent(c => c.map(i => i.id === id ? { ...i, favorite: !i.favorite } : i));
+    API.updateProgress(deviceId, id, 'toggleFavorite').catch(console.error);
+  };
+
+  const toggleArchive = (id) => {
+    updateContent(c => c.map(i => i.id === id ? { ...i, archived: !i.archived } : i));
+    API.updateProgress(deviceId, id, 'toggleArchive').catch(console.error);
+  };
+
   const updateItem = (id, updates) => updateContent(c => c.map(i => i.id === id ? { ...i, ...updates } : i));
 
-  const addItem = () => {
+  const addItem = async () => {
     if (!newItem.title.trim() || !newItem.content.trim()) return;
-    updateContent(c => [...c, { ...newItem, id: Date.now(), readCount: 0, archived: false, favorite: false }]);
+    try {
+      const created = await API.addContent(newItem.title.trim(), newItem.type, newItem.content.trim());
+      updateContent(c => [...c, {
+        id: created.id,
+        title: created.title,
+        type: created.type,
+        content: created.content,
+        readCount: 0,
+        archived: false,
+        favorite: false
+      }]);
+    } catch (e) {
+      console.error('Failed to add via API, adding locally:', e);
+      updateContent(c => [...c, { ...newItem, id: Date.now(), readCount: 0, archived: false, favorite: false }]);
+    }
     setNewItem({ title: "", content: "", type: "song" });
     setShowAdd(false);
   };
@@ -160,6 +228,12 @@ export default function App() {
         // Safe here since user controls the input
         data = (new Function('return ' + jsonText))();
       }
+
+      // Handle versioned export format
+      if (data.version && data.items) {
+        data = data.items;
+      }
+
       const items = data.map(item => ({
         id: item.id || Date.now() + Math.random(),
         title: item.title || "",
@@ -169,7 +243,18 @@ export default function App() {
         archived: item.archived || false,
         favorite: item.favorite || false,
       }));
-      setContent(items);
+
+      // Try to sync to API
+      try {
+        await API.seedContent(items, deviceId);
+        // Reload from API to get proper IDs
+        const refreshed = await loadData(deviceId);
+        setContent(refreshed);
+      } catch (e) {
+        console.warn('API seed failed, using local only:', e);
+        setContent(items);
+      }
+
       setShowImport(false);
     } catch (e) {
       console.error('Import error:', e);
