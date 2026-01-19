@@ -420,6 +420,11 @@ export default function App() {
         })}
       </div>
 
+      {/* Footer with version */}
+      <div className={`text-center py-4 ${textSecondary} text-xs`}>
+        v{__APP_VERSION__}
+      </div>
+
       <button onClick={() => setShowAdd(true)} className="fixed bottom-6 right-6 w-14 h-14 bg-blue-500 rounded-full shadow-lg flex items-center justify-center text-white z-50"><Plus size={24} /></button>
 
       {viewItem && <ViewModal item={viewItem} onClose={() => setViewItem(null)} onMarkRead={markRead} onToggleFavorite={toggleFavorite} onUpdateItem={updateItem} setViewItem={setViewItem} isDark={isDark} />}
