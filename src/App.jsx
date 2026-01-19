@@ -373,12 +373,21 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
 
   const handlePaste = async () => {
     try {
+      // Check and request clipboard permission
+      if (navigator.permissions) {
+        const permission = await navigator.permissions.query({ name: 'clipboard-read' });
+        if (permission.state === 'denied') {
+          alert('Quyền đọc clipboard bị từ chối. Vui lòng cho phép trong cài đặt trình duyệt.');
+          return;
+        }
+      }
       const text = await navigator.clipboard.readText();
       if (text) {
         setEditContent(text);
       }
     } catch (err) {
       console.error('Failed to read clipboard:', err);
+      alert('Không thể đọc clipboard. Vui lòng cho phép quyền truy cập clipboard.');
     }
   };
 
