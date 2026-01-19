@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download, Pencil, ExternalLink } from 'lucide-react';
+import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download, Pencil, ExternalLink, ClipboardPaste } from 'lucide-react';
 
 // ============================================================
 // CONFIG - For Vite: change these settings
@@ -371,6 +371,17 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
     setIsEditing(false);
   };
 
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setEditContent(text);
+      }
+    } catch (err) {
+      console.error('Failed to read clipboard:', err);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={isEditing ? undefined : onClose} />
@@ -404,12 +415,23 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
         </div>
         <div className="flex-1 overflow-y-auto p-4">
           {isEditing ? (
-            <textarea
-              value={editContent}
-              onChange={e => setEditContent(e.target.value)}
-              className={`w-full h-full min-h-[200px] px-3 py-2 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"} outline-none resize-none text-base leading-relaxed ${textPrimary}`}
-              placeholder="Nội dung..."
-            />
+            <div className="h-full flex flex-col">
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={handlePaste}
+                  className={`px-3 py-1.5 rounded-lg ${isDark ? "bg-zinc-800" : "bg-zinc-200"} flex items-center gap-1.5 text-sm ${textSecondary} hover:opacity-80`}
+                  title="Dán từ clipboard"
+                >
+                  <ClipboardPaste size={14} /> Dán
+                </button>
+              </div>
+              <textarea
+                value={editContent}
+                onChange={e => setEditContent(e.target.value)}
+                className={`w-full flex-1 min-h-[200px] px-3 py-2 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"} outline-none resize-none text-base leading-relaxed ${textPrimary}`}
+                placeholder="Nội dung..."
+              />
+            </div>
           ) : (
             <pre className={`whitespace-pre-wrap font-sans text-base leading-relaxed ${textPrimary}`}>{item.content}</pre>
           )}
