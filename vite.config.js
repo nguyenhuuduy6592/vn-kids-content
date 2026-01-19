@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.svg', 'pwa-192x192.svg', 'pwa-512x512.svg'],
+      includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Kho nội dung bé yêu',
         short_name: 'Kho nội dung bé yêu',
@@ -21,22 +21,10 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: 'pwa-192x192.svg',
-            sizes: '192x192',
+            src: 'favicon.svg',
+            sizes: 'any',
             type: 'image/svg+xml',
-            purpose: 'any'
-          },
-          {
-            src: 'pwa-512x512.svg',
-            sizes: '512x512',
-            type: 'image/svg+xml',
-            purpose: 'any'
-          },
-          {
-            src: 'pwa-512x512.svg',
-            sizes: '512x512',
-            type: 'image/svg+xml',
-            purpose: 'maskable'
+            purpose: 'any maskable'
           }
         ]
       },
