@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload } from 'lucide-react';
+import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download } from 'lucide-react';
 
 // ============================================================
 // CONFIG - For Vite: change these settings
@@ -170,11 +170,46 @@ export default function App() {
       }));
       setContent(items);
       setShowImport(false);
-    } catch (e) { 
+    } catch (e) {
       console.error('Import error:', e);
-      alert('Import failed: ' + e.message); 
+      alert('Import failed: ' + e.message);
     }
   };
+
+  const handleExport = useCallback(() => {
+    try {
+      // Create export data in versioned format (matches storage structure)
+      const exportData = {
+        version: CONFIG.VERSION,
+        items: content
+      };
+
+      // Convert to pretty-printed JSON
+      const jsonString = JSON.stringify(exportData, null, 2);
+
+      // Create blob and download
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const filename = `vn-kids-content-${timestamp}.json`;
+
+      // Create temporary link and trigger download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+
+      // Cleanup
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Xuất dữ liệu thất bại: ' + error.message);
+    }
+  }, [content]);
 
   const randomPick = () => {
     const available = filteredContent.filter(i => !i.archived);
@@ -233,6 +268,7 @@ export default function App() {
           </div>
           <div className="flex gap-2">
             <button onClick={() => setShowImport(true)} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`} title="Import"><Upload size={16} /></button>
+            <button onClick={handleExport} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`} title="Export"><Download size={16} /></button>
             <button onClick={() => setTheme(isDark ? "light" : "dark")} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}>
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
