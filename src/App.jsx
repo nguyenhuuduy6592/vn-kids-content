@@ -463,12 +463,25 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
 
   const handlePaste = async () => {
     try {
+      // Check clipboard permission (not supported in Safari, so wrap in try-catch)
+      if (navigator.permissions) {
+        try {
+          const permission = await navigator.permissions.query({ name: 'clipboard-read' });
+          if (permission.state === 'denied') {
+            alert('Quyền đọc clipboard bị từ chối. Vui lòng cho phép trong cài đặt trình duyệt.');
+            return;
+          }
+        } catch {
+          // Safari doesn't support clipboard-read permission query, proceed to read directly
+        }
+      }
       const text = await navigator.clipboard.readText();
       if (text) {
         setEditContent(text);
       }
     } catch (err) {
       console.error('Failed to read clipboard:', err);
+      alert('Không thể đọc clipboard. Vui lòng cho phép quyền truy cập clipboard.');
     }
   };
 
@@ -509,7 +522,7 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
               <div className="flex justify-end mb-2">
                 <button
                   onClick={handlePaste}
-                  className={`px-3 py-1.5 rounded-lg ${isDark ? "bg-zinc-800" : "bg-zinc-200"} flex items-center gap-1.5 text-sm ${textSecondary} hover:opacity-80`}
+                  className={`px-3 py-1.5 rounded-lg bg-blue-500 text-white flex items-center gap-1.5 text-sm hover:bg-blue-600 active:bg-blue-700`}
                   title="Dán từ clipboard"
                 >
                   <ClipboardPaste size={14} /> Dán
