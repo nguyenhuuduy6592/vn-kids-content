@@ -373,12 +373,16 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
 
   const handlePaste = async () => {
     try {
-      // Check and request clipboard permission
+      // Check clipboard permission (not supported in Safari, so wrap in try-catch)
       if (navigator.permissions) {
-        const permission = await navigator.permissions.query({ name: 'clipboard-read' });
-        if (permission.state === 'denied') {
-          alert('Quyền đọc clipboard bị từ chối. Vui lòng cho phép trong cài đặt trình duyệt.');
-          return;
+        try {
+          const permission = await navigator.permissions.query({ name: 'clipboard-read' });
+          if (permission.state === 'denied') {
+            alert('Quyền đọc clipboard bị từ chối. Vui lòng cho phép trong cài đặt trình duyệt.');
+            return;
+          }
+        } catch {
+          // Safari doesn't support clipboard-read permission query, proceed to read directly
         }
       }
       const text = await navigator.clipboard.readText();
