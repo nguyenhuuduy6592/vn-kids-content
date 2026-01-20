@@ -16,16 +16,10 @@ export default async function handler(req, res) {
 
   try {
     const sql = getDb();
-    const { deviceId } = req.query;
 
-    if (!deviceId) {
-      return res.status(400).json({ error: 'deviceId is required' });
-    }
-
-    // Delete all user progress for this device
+    // Delete all global progress first (due to foreign key constraint)
     const progressResult = await sql`
-      DELETE FROM user_progress
-      WHERE device_id = ${deviceId}
+      DELETE FROM content_progress
       RETURNING *
     `;
 

@@ -16,7 +16,7 @@ export default async function handler(req, res) {
 
   try {
     const sql = getDb();
-    const { items, deviceId } = req.body;
+    const { items } = req.body;
 
     if (!items || !Array.isArray(items)) {
       return res.status(400).json({ error: 'items array is required' });
@@ -50,16 +50,16 @@ export default async function handler(req, res) {
         insertedCount++;
       }
 
-      // If deviceId provided, also save user progress
-      if (deviceId && contentId) {
+      // Save global progress if any progress data exists
+      if (contentId && (readCount > 0 || favorite || archived)) {
         await sql`
-          INSERT INTO user_progress (device_id, content_id, read_count, favorite, archived)
-          VALUES (${deviceId}, ${contentId}, ${readCount}, ${favorite}, ${archived})
-          ON CONFLICT (device_id, content_id)
+          INSERT INTO content_progress (content_id, read_count, favorite, archived)
+          VALUES (${contentId}, ${readCount}, ${favorite}, ${archived})
+          ON CONFLICT (content_id)
           DO UPDATE SET
-            read_count = ${readCount},
-            favorite = ${favorite},
-            archived = ${archived}
+            read_count = GREATEST(content_progress.read_count, ${readCount}),
+            favorite = content_progress.favorite OR ${favorite},
+            archived = content_progress.archived OR ${archived}
         `;
         progressCount++;
       }
