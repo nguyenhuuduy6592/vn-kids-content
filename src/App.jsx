@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download, Pencil, ExternalLink, ClipboardPaste } from 'lucide-react';
+import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download, Pencil, ExternalLink, ClipboardPaste, Trash2 } from 'lucide-react';
 
 // ============================================================
 // CONFIG
@@ -88,6 +88,14 @@ const API = {
       body: JSON.stringify({ items, deviceId })
     });
     if (!res.ok) throw new Error('Failed to seed content');
+    return res.json();
+  },
+
+  async clearProgress(deviceId) {
+    const res = await fetch(`${CONFIG.API_BASE}/clear?deviceId=${deviceId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Failed to clear progress');
     return res.json();
   }
 };
@@ -181,6 +189,7 @@ export default function App() {
   const [viewItem, setViewItem] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [newItem, setNewItem] = useState({ title: "", content: "", type: "song" });
   const [theme, setTheme] = useState("light");
   const [deviceId] = useState(() => getDeviceId());
@@ -363,6 +372,26 @@ export default function App() {
     }
   }, [content]);
 
+  const handleClearAll = useCallback(async () => {
+    try {
+      // Clear database first
+      await API.clearProgress(deviceId);
+    } catch (e) {
+      console.warn('Failed to clear database:', e);
+    }
+    // Clear localStorage
+    localStorage.removeItem(CONFIG.STORAGE_KEY);
+    localStorage.removeItem(CONFIG.DEVICE_ID_KEY);
+    // Reset state
+    setContent([]);
+    setSearch("");
+    setFilter("all");
+    setShowArchived(false);
+    setShowClearConfirm(false);
+    // Reload the page to get a new device ID
+    window.location.reload();
+  }, [deviceId]);
+
   const randomPick = () => {
     const available = filteredContent.filter(i => !i.archived);
     if (available.length) setViewItem(available[Math.floor(Math.random() * available.length)]);
@@ -486,11 +515,22 @@ export default function App() {
         })}
       </div>
 
+      {/* Clear All Button */}
+      <div className="px-4 pt-6 pb-4">
+        <button
+          onClick={() => setShowClearConfirm(true)}
+          className={`w-full py-3 rounded-xl flex items-center justify-center gap-2 ${isDark ? "bg-red-900/30 text-red-400 border border-red-900" : "bg-red-50 text-red-600 border border-red-200"} text-sm font-medium`}
+        >
+          <Trash2 size={16} /> Xóa tất cả dữ liệu
+        </button>
+      </div>
+
       <button onClick={() => setShowAdd(true)} className="fixed bottom-6 right-6 w-14 h-14 bg-blue-500 rounded-full shadow-lg flex items-center justify-center text-white z-50"><Plus size={24} /></button>
 
       {viewItem && <ViewModal item={viewItem} onClose={() => setViewItem(null)} onMarkRead={markRead} onToggleFavorite={toggleFavorite} onUpdateItem={updateItem} setViewItem={setViewItem} isDark={isDark} />}
       {showAdd && <AddModal onAdd={addItem} onClose={() => setShowAdd(false)} newItem={newItem} setNewItem={setNewItem} isDark={isDark} />}
       {showImport && <ImportModal onImport={importSeed} onClose={() => setShowImport(false)} isDark={isDark} />}
+      {showClearConfirm && <ClearConfirmModal onConfirm={handleClearAll} onClose={() => setShowClearConfirm(false)} isDark={isDark} />}
     </div>
   );
 }
@@ -697,6 +737,51 @@ function ImportModal({ onImport, onClose, isDark }) {
         </div>
         <div className={`p-4 border-t ${border}`}>
           <button onClick={() => onImport(text)} disabled={!text.trim()} className="w-full py-3 rounded-xl bg-blue-500 text-white font-medium disabled:opacity-50">Nhập</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClearConfirmModal({ onConfirm, onClose, isDark }) {
+  const bgCard = isDark ? "bg-zinc-900" : "bg-white";
+  const textPrimary = isDark ? "text-zinc-100" : "text-zinc-900";
+  const textSecondary = isDark ? "text-zinc-400" : "text-zinc-500";
+  const border = isDark ? "border-zinc-800" : "border-zinc-200";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className={`relative w-full max-w-md ${bgCard} rounded-t-3xl sm:rounded-3xl overflow-hidden`}>
+        <div className={`p-4 border-b ${border} flex items-center justify-between`}>
+          <div className="flex items-center gap-2">
+            <div className={`p-2 rounded-full ${isDark ? "bg-red-900/30" : "bg-red-100"}`}>
+              <Trash2 size={18} className="text-red-500" />
+            </div>
+            <h2 className={`font-semibold ${textPrimary}`}>Xác nhận xóa</h2>
+          </div>
+          <button onClick={onClose} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}>
+            <X size={18} className={textPrimary} />
+          </button>
+        </div>
+        <div className="p-4">
+          <p className={`text-sm ${textSecondary} mb-4`}>
+            Bạn có chắc chắn muốn xóa tất cả dữ liệu? Hành động này sẽ xóa toàn bộ nội dung đã lưu và không thể hoàn tác.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className={`flex-1 py-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-200"} font-medium ${textPrimary}`}
+            >
+              Hủy
+            </button>
+            <button
+              onClick={onConfirm}
+              className="flex-1 py-3 rounded-xl bg-red-500 text-white font-medium"
+            >
+              Xóa tất cả
+            </button>
+          </div>
         </div>
       </div>
     </div>
