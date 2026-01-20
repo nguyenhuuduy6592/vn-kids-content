@@ -586,12 +586,17 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(item.title);
   const [editContent, setEditContent] = useState(item.content);
+  const [showPasteInput, setShowPasteInput] = useState(false);
+  const [pasteError, setPasteError] = useState('');
 
   const cfg = typeConfig[item.type] || typeConfig.poem;
   const bgCard = isDark ? "bg-zinc-900" : "bg-white";
   const textPrimary = isDark ? "text-zinc-100" : "text-zinc-900";
   const textSecondary = isDark ? "text-zinc-400" : "text-zinc-500";
   const border = isDark ? "border-zinc-800" : "border-zinc-200";
+
+  // Detect iOS
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
   const handleSave = () => {
     if (!editTitle.trim() || !editContent.trim()) return;
@@ -604,16 +609,26 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
     setEditTitle(item.title);
     setEditContent(item.content);
     setIsEditing(false);
+    setShowPasteInput(false);
+    setPasteError('');
   };
 
   const handlePaste = async () => {
+    setPasteError('');
+
+    // On iOS, show paste input field instead of using clipboard API
+    if (isIOS) {
+      setShowPasteInput(true);
+      return;
+    }
+
     try {
       // Check clipboard permission (not supported in Safari, so wrap in try-catch)
       if (navigator.permissions) {
         try {
           const permission = await navigator.permissions.query({ name: 'clipboard-read' });
           if (permission.state === 'denied') {
-            alert('Quyền đọc clipboard bị từ chối. Vui lòng cho phép trong cài đặt trình duyệt.');
+            setPasteError('Quyền đọc clipboard bị từ chối.');
             return;
           }
         } catch {
@@ -626,7 +641,16 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
       }
     } catch (err) {
       console.error('Failed to read clipboard:', err);
-      alert('Không thể đọc clipboard. Vui lòng cho phép quyền truy cập clipboard.');
+      // Fallback to paste input on clipboard API failure
+      setShowPasteInput(true);
+    }
+  };
+
+  const handlePasteInputChange = (e) => {
+    const text = e.target.value;
+    if (text) {
+      setEditContent(text);
+      setShowPasteInput(false);
     }
   };
 
@@ -664,14 +688,48 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
         <div className="flex-1 overflow-y-auto p-4">
           {isEditing ? (
             <div className="h-full flex flex-col">
-              <div className="flex justify-end mb-2">
-                <button
-                  onClick={handlePaste}
-                  className={`px-3 py-1.5 rounded-lg bg-blue-500 text-white flex items-center gap-1.5 text-sm hover:bg-blue-600 active:bg-blue-700`}
-                  title="Dán từ clipboard"
-                >
-                  <ClipboardPaste size={14} /> Dán
-                </button>
+              <div className="flex flex-col gap-2 mb-2">
+                <div className="flex justify-end items-center gap-2">
+                  {pasteError && (
+                    <span className="text-red-500 text-xs">{pasteError}</span>
+                  )}
+                  <button
+                    onClick={handlePaste}
+                    className="px-3 py-1.5 rounded-lg bg-blue-500 text-white flex items-center gap-1.5 text-sm
+                      hover:bg-blue-600 active:bg-blue-700 active:scale-95
+                      focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2
+                      transition-all duration-150 ease-in-out
+                      shadow-sm hover:shadow-md"
+                    title="Dán từ clipboard"
+                  >
+                    <ClipboardPaste size={14} /> Dán
+                  </button>
+                </div>
+                {showPasteInput && (
+                  <div className={`flex items-center gap-2 p-2 rounded-lg ${isDark ? "bg-zinc-800" : "bg-zinc-100"} border ${isDark ? "border-zinc-700" : "border-zinc-300"}`}>
+                    <input
+                      type="text"
+                      placeholder="Nhấn giữ và chọn Dán tại đây..."
+                      onChange={handlePasteInputChange}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const text = e.clipboardData.getData('text');
+                        if (text) {
+                          setEditContent(text);
+                          setShowPasteInput(false);
+                        }
+                      }}
+                      className={`flex-1 px-2 py-1 rounded bg-transparent outline-none text-sm ${textPrimary}`}
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => setShowPasteInput(false)}
+                      className={`p-1 rounded ${isDark ? "hover:bg-zinc-700" : "hover:bg-zinc-200"} transition-colors`}
+                    >
+                      <X size={14} className={textSecondary} />
+                    </button>
+                  </div>
+                )}
               </div>
               <textarea
                 value={editContent}
