@@ -95,6 +95,35 @@ const API = {
 // ============================================================
 // DATA LAYER
 // ============================================================
+
+// Deduplicate items by ID first, then by title+type for items without proper IDs
+function deduplicateItems(items) {
+  const seenIds = new Set();
+  const seenTitleType = new Set();
+  const result = [];
+
+  for (const item of items) {
+    // Skip if we've seen this ID (unless it's a temporary ID)
+    const isTemporaryId = typeof item.id === 'number' && item.id > 1000000000000; // Date.now() style IDs
+
+    if (!isTemporaryId && seenIds.has(item.id)) {
+      continue;
+    }
+
+    // Check for title+type duplicates
+    const titleTypeKey = `${item.title?.toLowerCase().trim()}|${item.type}`;
+    if (seenTitleType.has(titleTypeKey)) {
+      continue;
+    }
+
+    seenIds.add(item.id);
+    seenTitleType.add(titleTypeKey);
+    result.push(item);
+  }
+
+  return result;
+}
+
 async function loadData(deviceId) {
   try {
     // Try API first
@@ -110,9 +139,11 @@ async function loadData(deviceId) {
         favorite: item.favorite || false,
         archived: item.archived || false
       }));
+      // Deduplicate to prevent showing duplicate entries
+      const deduplicated = deduplicateItems(transformed);
       // Cache locally for offline
-      Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items: transformed });
-      return transformed;
+      Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items: deduplicated });
+      return deduplicated;
     }
   } catch (e) {
     console.warn('API fetch failed, using local storage:', e);
@@ -121,7 +152,8 @@ async function loadData(deviceId) {
   // Fallback to localStorage
   const stored = Storage.get(CONFIG.STORAGE_KEY);
   if (stored?.version === CONFIG.VERSION && stored?.items?.length) {
-    return stored.items;
+    // Also deduplicate localStorage data
+    return deduplicateItems(stored.items);
   }
 
   return [];
@@ -214,6 +246,17 @@ export default function App() {
 
   const addItem = async () => {
     if (!newItem.title.trim() || !newItem.content.trim()) return;
+
+    // Check for duplicate before adding
+    const titleLower = newItem.title.trim().toLowerCase();
+    const exists = content.some(
+      item => item.title.toLowerCase().trim() === titleLower && item.type === newItem.type
+    );
+    if (exists) {
+      alert('Nội dung với tiêu đề và loại này đã tồn tại!');
+      return;
+    }
+
     try {
       const created = await API.addContent(newItem.title.trim(), newItem.type, newItem.content.trim());
       updateContent(c => [...c, {
@@ -260,15 +303,22 @@ export default function App() {
         favorite: item.favorite || false,
       }));
 
+      // Deduplicate imported items before processing
+      const deduplicatedItems = deduplicateItems(items);
+
       // Try to sync to API
       try {
-        await API.seedContent(items, deviceId);
-        // Reload from API to get proper IDs
+        await API.seedContent(deduplicatedItems, deviceId);
+        // Reload from API to get proper IDs (loadData already deduplicates)
         const refreshed = await loadData(deviceId);
         setContent(refreshed);
       } catch (e) {
         console.warn('API seed failed, using local only:', e);
-        setContent(items);
+        // Merge with existing content instead of replacing to avoid data loss
+        setContent(prev => {
+          const combined = [...prev, ...deduplicatedItems];
+          return deduplicateItems(combined);
+        });
       }
 
       setShowImport(false);
