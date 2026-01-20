@@ -365,7 +365,7 @@ export default function App() {
       <div className={`sticky top-0 z-40 ${bgCard} border-b ${border} px-4 pt-4 pb-3`}>
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h1 className="text-lg font-semibold">Kho nội dung bé yêu</h1>
+            <h1 className="text-lg font-semibold flex items-center gap-2">Kho nội dung bé yêu <span className={`text-xs font-normal px-1.5 py-0.5 rounded ${isDark ? "bg-zinc-700 text-zinc-400" : "bg-zinc-200 text-zinc-500"}`}>v{__APP_VERSION__.split('.')[0]}</span></h1>
             <p className={`text-xs ${textSecondary}`}>{stats.total} mục • {stats.songs} hát • {stats.poems} thơ • {stats.stories} truyện</p>
           </div>
           <div className="flex gap-2">
@@ -434,11 +434,6 @@ export default function App() {
             </div>
           );
         })}
-      </div>
-
-      {/* Footer with version */}
-      <div className={`text-center py-4 ${textSecondary} text-xs`}>
-        v{__APP_VERSION__}
       </div>
 
       <button onClick={() => setShowAdd(true)} className="fixed bottom-6 right-6 w-14 h-14 bg-blue-500 rounded-full shadow-lg flex items-center justify-center text-white z-50"><Plus size={24} /></button>
