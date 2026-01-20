@@ -3,7 +3,7 @@ import { getDb } from './db.js';
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -60,6 +60,63 @@ export default async function handler(req, res) {
       `;
 
       return res.status(201).json(row);
+    }
+
+    if (req.method === 'PUT') {
+      // Update existing content
+      const { id, title, content } = req.body;
+
+      if (!id) {
+        return res.status(400).json({ error: 'Missing required field: id' });
+      }
+
+      if (!title && !content) {
+        return res.status(400).json({ error: 'At least one field to update is required: title or content' });
+      }
+
+      // Build dynamic update query
+      const updates = [];
+      const values = [];
+
+      if (title !== undefined) {
+        updates.push('title');
+        values.push(title);
+      }
+      if (content !== undefined) {
+        updates.push('content');
+        values.push(content);
+      }
+
+      // Update with dynamic fields
+      let row;
+      if (title !== undefined && content !== undefined) {
+        [row] = await sql`
+          UPDATE content
+          SET title = ${title}, content = ${content}, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ${id}
+          RETURNING id, title, type, content, created_at, updated_at
+        `;
+      } else if (title !== undefined) {
+        [row] = await sql`
+          UPDATE content
+          SET title = ${title}, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ${id}
+          RETURNING id, title, type, content, created_at, updated_at
+        `;
+      } else {
+        [row] = await sql`
+          UPDATE content
+          SET content = ${content}, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ${id}
+          RETURNING id, title, type, content, created_at, updated_at
+        `;
+      }
+
+      if (!row) {
+        return res.status(404).json({ error: 'Content not found' });
+      }
+
+      return res.status(200).json(row);
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
