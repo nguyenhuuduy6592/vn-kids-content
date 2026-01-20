@@ -23,15 +23,22 @@ export default async function handler(req, res) {
     }
 
     // Delete all user progress for this device
-    const result = await sql`
+    const progressResult = await sql`
       DELETE FROM user_progress
       WHERE device_id = ${deviceId}
       RETURNING *
     `;
 
+    // Delete all content
+    const contentResult = await sql`
+      DELETE FROM content
+      RETURNING *
+    `;
+
     return res.status(200).json({
       success: true,
-      deleted: result.length
+      deletedProgress: progressResult.length,
+      deletedContent: contentResult.length
     });
   } catch (error) {
     console.error('API Error:', error);
