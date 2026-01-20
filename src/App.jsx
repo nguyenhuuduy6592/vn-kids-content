@@ -89,6 +89,14 @@ const API = {
     });
     if (!res.ok) throw new Error('Failed to seed content');
     return res.json();
+  },
+
+  async clearProgress(deviceId) {
+    const res = await fetch(`${CONFIG.API_BASE}/clear?deviceId=${deviceId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Failed to clear progress');
+    return res.json();
   }
 };
 
@@ -314,7 +322,13 @@ export default function App() {
     }
   }, [content]);
 
-  const handleClearAll = useCallback(() => {
+  const handleClearAll = useCallback(async () => {
+    try {
+      // Clear database first
+      await API.clearProgress(deviceId);
+    } catch (e) {
+      console.warn('Failed to clear database:', e);
+    }
     // Clear localStorage
     localStorage.removeItem(CONFIG.STORAGE_KEY);
     localStorage.removeItem(CONFIG.DEVICE_ID_KEY);
@@ -326,7 +340,7 @@ export default function App() {
     setShowClearConfirm(false);
     // Reload the page to get a new device ID
     window.location.reload();
-  }, []);
+  }, [deviceId]);
 
   const randomPick = () => {
     const available = filteredContent.filter(i => !i.archived);
