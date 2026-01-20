@@ -180,6 +180,21 @@ const typeConfig = {
   story: { icon: BookOpen, label: "Truyện", color: "text-amber-500", bg: "bg-amber-100 dark:bg-amber-900/30" }
 };
 
+// ============================================================
+// FULLSCREEN LOADER COMPONENT
+// ============================================================
+function FullscreenLoader({ message, isDark }) {
+  const bgOverlay = isDark ? "bg-zinc-950/90" : "bg-zinc-50/90";
+  const textPrimary = isDark ? "text-zinc-100" : "text-zinc-900";
+
+  return (
+    <div className={`fixed inset-0 z-[100] ${bgOverlay} flex flex-col items-center justify-center backdrop-blur-sm`}>
+      <Loader className="animate-spin text-blue-500 mb-4" size={40} />
+      {message && <p className={`text-sm ${textPrimary} animate-pulse`}>{message}</p>}
+    </div>
+  );
+}
+
 export default function App() {
   const [content, setContent] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -193,6 +208,7 @@ export default function App() {
   const [newItem, setNewItem] = useState({ title: "", content: "", type: "song" });
   const [theme, setTheme] = useState("light");
   const [deviceId] = useState(() => getDeviceId());
+  const [operationLoading, setOperationLoading] = useState({ active: false, message: "" });
 
   const isDark = theme === "dark";
 
@@ -245,11 +261,24 @@ export default function App() {
     API.updateProgress(deviceId, id, 'toggleArchive').catch(console.error);
   };
 
-  const updateItem = (id, updates) => {
+  const updateItem = async (id, updates) => {
+    // Show fullscreen loading for content updates (title/content changes)
+    const isContentUpdate = updates.title !== undefined || updates.content !== undefined;
+    if (isContentUpdate) {
+      setOperationLoading({ active: true, message: "Đang cập nhật..." });
+    }
+
     updateContent(c => c.map(i => i.id === id ? { ...i, ...updates } : i));
+
     // Sync content changes to cloud
-    if (updates.title !== undefined || updates.content !== undefined) {
-      API.updateContent(id, updates.title, updates.content).catch(console.error);
+    if (isContentUpdate) {
+      try {
+        await API.updateContent(id, updates.title, updates.content);
+      } catch (e) {
+        console.error('Failed to update content:', e);
+      } finally {
+        setOperationLoading({ active: false, message: "" });
+      }
     }
   };
 
@@ -266,6 +295,10 @@ export default function App() {
       return;
     }
 
+    // Show fullscreen loading
+    setOperationLoading({ active: true, message: "Đang thêm nội dung..." });
+    setShowAdd(false);
+
     try {
       const created = await API.addContent(newItem.title.trim(), newItem.type, newItem.content.trim());
       updateContent(c => [...c, {
@@ -280,9 +313,10 @@ export default function App() {
     } catch (e) {
       console.error('Failed to add via API, adding locally:', e);
       updateContent(c => [...c, { ...newItem, id: Date.now(), readCount: 0, archived: false, favorite: false }]);
+    } finally {
+      setOperationLoading({ active: false, message: "" });
     }
     setNewItem({ title: "", content: "", type: "song" });
-    setShowAdd(false);
   };
 
   const importSeed = async (jsonText) => {
@@ -315,6 +349,10 @@ export default function App() {
       // Deduplicate imported items before processing
       const deduplicatedItems = deduplicateItems(items);
 
+      // Show fullscreen loading
+      setOperationLoading({ active: true, message: "Đang nhập dữ liệu..." });
+      setShowImport(false);
+
       // Try to sync to API
       try {
         await API.seedContent(deduplicatedItems, deviceId);
@@ -328,11 +366,12 @@ export default function App() {
           const combined = [...prev, ...deduplicatedItems];
           return deduplicateItems(combined);
         });
+      } finally {
+        setOperationLoading({ active: false, message: "" });
       }
-
-      setShowImport(false);
     } catch (e) {
       console.error('Import error:', e);
+      setOperationLoading({ active: false, message: "" });
       alert('Import failed: ' + e.message);
     }
   };
@@ -373,6 +412,10 @@ export default function App() {
   }, [content]);
 
   const handleClearAll = useCallback(async () => {
+    // Show fullscreen loading
+    setOperationLoading({ active: true, message: "Đang xóa dữ liệu..." });
+    setShowClearConfirm(false);
+
     try {
       // Clear database first
       await API.clearProgress(deviceId);
@@ -387,7 +430,6 @@ export default function App() {
     setSearch("");
     setFilter("all");
     setShowArchived(false);
-    setShowClearConfirm(false);
     // Reload the page to get a new device ID
     window.location.reload();
   }, [deviceId]);
@@ -434,6 +476,7 @@ export default function App() {
           <Upload size={18} /> Nhập dữ liệu
         </button>
         {showImport && <ImportModal onImport={importSeed} onClose={() => setShowImport(false)} isDark={isDark} />}
+        {operationLoading.active && <FullscreenLoader message={operationLoading.message} isDark={isDark} />}
       </div>
     );
   }
@@ -531,6 +574,7 @@ export default function App() {
       {showAdd && <AddModal onAdd={addItem} onClose={() => setShowAdd(false)} newItem={newItem} setNewItem={setNewItem} isDark={isDark} />}
       {showImport && <ImportModal onImport={importSeed} onClose={() => setShowImport(false)} isDark={isDark} />}
       {showClearConfirm && <ClearConfirmModal onConfirm={handleClearAll} onClose={() => setShowClearConfirm(false)} isDark={isDark} />}
+      {operationLoading.active && <FullscreenLoader message={operationLoading.message} isDark={isDark} />}
     </div>
   );
 }
