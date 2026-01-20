@@ -616,32 +616,24 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
   const handlePaste = async () => {
     setPasteError('');
 
-    // On iOS, show paste input field instead of using clipboard API
-    if (isIOS) {
-      setShowPasteInput(true);
-      return;
-    }
-
     try {
-      // Check clipboard permission (not supported in Safari, so wrap in try-catch)
-      if (navigator.permissions) {
-        try {
-          const permission = await navigator.permissions.query({ name: 'clipboard-read' });
-          if (permission.state === 'denied') {
-            setPasteError('Quyền đọc clipboard bị từ chối.');
-            return;
-          }
-        } catch {
-          // Safari doesn't support clipboard-read permission query, proceed to read directly
-        }
-      }
+      // Call clipboard API immediately without permission pre-check
+      // Safari will show native "Paste" callout bar for user to confirm
+      // Important: Don't do async work before this call or it breaks the user gesture chain
       const text = await navigator.clipboard.readText();
       if (text) {
         setEditContent(text);
       }
     } catch (err) {
       console.error('Failed to read clipboard:', err);
-      // Fallback to paste input on clipboard API failure
+
+      // On iOS/Safari, if user dismisses the paste callout or permission denied
+      // Show helpful message and fallback input
+      if (isIOS) {
+        setPasteError('Nhấn "Dán" trên thanh popup hoặc dán thủ công bên dưới');
+      } else {
+        setPasteError('Không thể đọc clipboard');
+      }
       setShowPasteInput(true);
     }
   };
