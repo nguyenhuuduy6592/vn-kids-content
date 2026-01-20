@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download, Pencil, ExternalLink, ClipboardPaste, Trash2 } from 'lucide-react';
+import { useRegisterSW } from 'virtual:pwa-register/react';
 
 // ============================================================
 // CONFIG
@@ -8,6 +9,7 @@ const CONFIG = {
   STORAGE_KEY: 'vn-kids-content',
   VERSION: 1,
   API_BASE: '/api',
+  CACHE_MAX_AGE: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
 };
 
 // ============================================================
@@ -136,17 +138,24 @@ async function loadData() {
       }));
       // Deduplicate to prevent showing duplicate entries
       const deduplicated = deduplicateItems(transformed);
-      // Cache locally for offline
-      Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items: deduplicated });
+      // Cache locally for offline with timestamp
+      Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items: deduplicated, timestamp: Date.now() });
       return deduplicated;
     }
   } catch (e) {
     console.warn('API fetch failed, using local storage:', e);
   }
 
-  // Fallback to localStorage
+  // Fallback to localStorage (only if cache is not expired)
   const stored = Storage.get(CONFIG.STORAGE_KEY);
   if (stored?.version === CONFIG.VERSION && stored?.items?.length) {
+    // Check if cache is expired
+    const isExpired = stored.timestamp && (Date.now() - stored.timestamp > CONFIG.CACHE_MAX_AGE);
+    if (isExpired) {
+      console.warn('Local cache expired, clearing...');
+      localStorage.removeItem(CONFIG.STORAGE_KEY);
+      return [];
+    }
     // Also deduplicate localStorage data
     return deduplicateItems(stored.items);
   }
@@ -155,7 +164,7 @@ async function loadData() {
 }
 
 function saveDataLocal(items) {
-  Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items });
+  Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items, timestamp: Date.now() });
 }
 
 // ============================================================
@@ -182,6 +191,31 @@ function FullscreenLoader({ message, isDark }) {
   );
 }
 
+// ============================================================
+// UPDATE PROMPT COMPONENT - Shows when new version is available
+// ============================================================
+function UpdatePrompt({ onUpdate, isDark }) {
+  const bgCard = isDark ? "bg-zinc-800" : "bg-white";
+  const textPrimary = isDark ? "text-zinc-100" : "text-zinc-900";
+
+  return (
+    <div className={`fixed bottom-20 left-4 right-4 z-[60] ${bgCard} rounded-xl shadow-lg p-4 border ${isDark ? "border-zinc-700" : "border-zinc-200"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <RefreshCw size={20} className="text-blue-500" />
+          <p className={`text-sm ${textPrimary}`}>Phiên bản mới!</p>
+        </div>
+        <button
+          onClick={onUpdate}
+          className="px-4 py-2 bg-blue-500 text-white text-sm font-medium rounded-lg"
+        >
+          Cập nhật
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [content, setContent] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -197,6 +231,22 @@ export default function App() {
   const [operationLoading, setOperationLoading] = useState({ active: false, message: "" });
 
   const isDark = theme === "dark";
+
+  // Service worker update detection
+  const {
+    needRefresh: [needRefresh],
+    updateServiceWorker,
+  } = useRegisterSW({
+    onRegistered(r) {
+      // Check for updates every 5 minutes
+      if (r) {
+        setInterval(() => r.update(), 5 * 60 * 1000);
+      }
+    },
+    onRegisterError(error) {
+      console.error('SW registration error:', error);
+    },
+  });
 
   // Load data on mount
   useEffect(() => {
@@ -559,6 +609,7 @@ export default function App() {
       {showImport && <ImportModal onImport={importSeed} onClose={() => setShowImport(false)} isDark={isDark} />}
       {showClearConfirm && <ClearConfirmModal onConfirm={handleClearAll} onClose={() => setShowClearConfirm(false)} isDark={isDark} />}
       {operationLoading.active && <FullscreenLoader message={operationLoading.message} isDark={isDark} />}
+      {needRefresh && <UpdatePrompt onUpdate={() => updateServiceWorker(true)} isDark={isDark} />}
     </div>
   );
 }
