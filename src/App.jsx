@@ -6,22 +6,9 @@ import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Che
 // ============================================================
 const CONFIG = {
   STORAGE_KEY: 'vn-kids-content',
-  DEVICE_ID_KEY: 'vn-kids-device-id',
   VERSION: 1,
   API_BASE: '/api',
 };
-
-// ============================================================
-// DEVICE ID - Anonymous user tracking
-// ============================================================
-function getDeviceId() {
-  let id = localStorage.getItem(CONFIG.DEVICE_ID_KEY);
-  if (!id) {
-    id = 'device_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
-    localStorage.setItem(CONFIG.DEVICE_ID_KEY, id);
-  }
-  return id;
-}
 
 // ============================================================
 // STORAGE LAYER - localStorage for offline/fallback
@@ -45,17 +32,17 @@ const Storage = {
 // API LAYER - Neon database via Vercel serverless
 // ============================================================
 const API = {
-  async fetchContent(deviceId) {
-    const res = await fetch(`${CONFIG.API_BASE}/content?deviceId=${deviceId}`);
+  async fetchContent() {
+    const res = await fetch(`${CONFIG.API_BASE}/content`);
     if (!res.ok) throw new Error('Failed to fetch content');
     return res.json();
   },
 
-  async updateProgress(deviceId, contentId, action, value) {
+  async updateProgress(contentId, action, value) {
     const res = await fetch(`${CONFIG.API_BASE}/progress`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId, contentId, action, value })
+      body: JSON.stringify({ contentId, action, value })
     });
     if (!res.ok) throw new Error('Failed to update progress');
     return res.json();
@@ -81,21 +68,21 @@ const API = {
     return res.json();
   },
 
-  async seedContent(items, deviceId) {
+  async seedContent(items) {
     const res = await fetch(`${CONFIG.API_BASE}/seed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, deviceId })
+      body: JSON.stringify({ items })
     });
     if (!res.ok) throw new Error('Failed to seed content');
     return res.json();
   },
 
-  async clearProgress(deviceId) {
-    const res = await fetch(`${CONFIG.API_BASE}/clear?deviceId=${deviceId}`, {
+  async clearAll() {
+    const res = await fetch(`${CONFIG.API_BASE}/clear`, {
       method: 'DELETE'
     });
-    if (!res.ok) throw new Error('Failed to clear progress');
+    if (!res.ok) throw new Error('Failed to clear data');
     return res.json();
   }
 };
@@ -132,10 +119,10 @@ function deduplicateItems(items) {
   return result;
 }
 
-async function loadData(deviceId) {
+async function loadData() {
   try {
     // Try API first
-    const items = await API.fetchContent(deviceId);
+    const items = await API.fetchContent();
     if (items?.length) {
       // Transform API response to app format
       const transformed = items.map(item => ({
@@ -207,18 +194,17 @@ export default function App() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [newItem, setNewItem] = useState({ title: "", content: "", type: "song" });
   const [theme, setTheme] = useState("light");
-  const [deviceId] = useState(() => getDeviceId());
   const [operationLoading, setOperationLoading] = useState({ active: false, message: "" });
 
   const isDark = theme === "dark";
 
   // Load data on mount
   useEffect(() => {
-    loadData(deviceId).then(items => {
+    loadData().then(items => {
       setContent(items);
       setLoading(false);
     });
-  }, [deviceId]);
+  }, []);
 
   // Save locally on changes (debounced) - API syncs on actions
   useEffect(() => {
@@ -248,17 +234,17 @@ export default function App() {
 
   const markRead = (id) => {
     updateContent(c => c.map(i => i.id === id ? { ...i, readCount: i.readCount + 1 } : i));
-    API.updateProgress(deviceId, id, 'markRead').catch(console.error);
+    API.updateProgress(id, 'markRead').catch(console.error);
   };
 
   const toggleFavorite = (id) => {
     updateContent(c => c.map(i => i.id === id ? { ...i, favorite: !i.favorite } : i));
-    API.updateProgress(deviceId, id, 'toggleFavorite').catch(console.error);
+    API.updateProgress(id, 'toggleFavorite').catch(console.error);
   };
 
   const toggleArchive = (id) => {
     updateContent(c => c.map(i => i.id === id ? { ...i, archived: !i.archived } : i));
-    API.updateProgress(deviceId, id, 'toggleArchive').catch(console.error);
+    API.updateProgress(id, 'toggleArchive').catch(console.error);
   };
 
   const updateItem = async (id, updates) => {
@@ -355,9 +341,9 @@ export default function App() {
 
       // Try to sync to API
       try {
-        await API.seedContent(deduplicatedItems, deviceId);
+        await API.seedContent(deduplicatedItems);
         // Reload from API to get proper IDs (loadData already deduplicates)
-        const refreshed = await loadData(deviceId);
+        const refreshed = await loadData();
         setContent(refreshed);
       } catch (e) {
         console.warn('API seed failed, using local only:', e);
@@ -418,21 +404,19 @@ export default function App() {
 
     try {
       // Clear database first
-      await API.clearProgress(deviceId);
+      await API.clearAll();
     } catch (e) {
       console.warn('Failed to clear database:', e);
     }
     // Clear localStorage
     localStorage.removeItem(CONFIG.STORAGE_KEY);
-    localStorage.removeItem(CONFIG.DEVICE_ID_KEY);
     // Reset state
     setContent([]);
     setSearch("");
     setFilter("all");
     setShowArchived(false);
-    // Reload the page to get a new device ID
-    window.location.reload();
-  }, [deviceId]);
+    setOperationLoading({ active: false, message: "" });
+  }, []);
 
   const randomPick = () => {
     const available = filteredContent.filter(i => !i.archived);

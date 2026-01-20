@@ -14,28 +14,21 @@ export default async function handler(req, res) {
     const sql = getDb();
 
     if (req.method === 'GET') {
-      // Get all progress for a device
-      const { deviceId } = req.query;
-
-      if (!deviceId) {
-        return res.status(400).json({ error: 'deviceId is required' });
-      }
-
+      // Get all global progress
       const rows = await sql`
         SELECT content_id, read_count, favorite, archived
-        FROM user_progress
-        WHERE device_id = ${deviceId}
+        FROM content_progress
       `;
 
       return res.status(200).json(rows);
     }
 
     if (req.method === 'POST') {
-      // Update progress for a content item
-      const { deviceId, contentId, action, value } = req.body;
+      // Update global progress for a content item
+      const { contentId, action, value } = req.body;
 
-      if (!deviceId || !contentId || !action) {
-        return res.status(400).json({ error: 'Missing required fields: deviceId, contentId, action' });
+      if (!contentId || !action) {
+        return res.status(400).json({ error: 'Missing required fields: contentId, action' });
       }
 
       // Upsert based on action type
@@ -45,10 +38,10 @@ export default async function handler(req, res) {
         case 'markRead':
           // Increment read count
           result = await sql`
-            INSERT INTO user_progress (device_id, content_id, read_count)
-            VALUES (${deviceId}, ${contentId}, 1)
-            ON CONFLICT (device_id, content_id)
-            DO UPDATE SET read_count = user_progress.read_count + 1
+            INSERT INTO content_progress (content_id, read_count)
+            VALUES (${contentId}, 1)
+            ON CONFLICT (content_id)
+            DO UPDATE SET read_count = content_progress.read_count + 1
             RETURNING *
           `;
           break;
@@ -56,10 +49,10 @@ export default async function handler(req, res) {
         case 'toggleFavorite':
           // Toggle favorite status
           result = await sql`
-            INSERT INTO user_progress (device_id, content_id, favorite)
-            VALUES (${deviceId}, ${contentId}, true)
-            ON CONFLICT (device_id, content_id)
-            DO UPDATE SET favorite = NOT user_progress.favorite
+            INSERT INTO content_progress (content_id, favorite)
+            VALUES (${contentId}, true)
+            ON CONFLICT (content_id)
+            DO UPDATE SET favorite = NOT content_progress.favorite
             RETURNING *
           `;
           break;
@@ -67,10 +60,10 @@ export default async function handler(req, res) {
         case 'toggleArchive':
           // Toggle archived status
           result = await sql`
-            INSERT INTO user_progress (device_id, content_id, archived)
-            VALUES (${deviceId}, ${contentId}, true)
-            ON CONFLICT (device_id, content_id)
-            DO UPDATE SET archived = NOT user_progress.archived
+            INSERT INTO content_progress (content_id, archived)
+            VALUES (${contentId}, true)
+            ON CONFLICT (content_id)
+            DO UPDATE SET archived = NOT content_progress.archived
             RETURNING *
           `;
           break;
@@ -79,9 +72,9 @@ export default async function handler(req, res) {
           // Set specific values (for sync/import)
           const { readCount = 0, favorite = false, archived = false } = value || {};
           result = await sql`
-            INSERT INTO user_progress (device_id, content_id, read_count, favorite, archived)
-            VALUES (${deviceId}, ${contentId}, ${readCount}, ${favorite}, ${archived})
-            ON CONFLICT (device_id, content_id)
+            INSERT INTO content_progress (content_id, read_count, favorite, archived)
+            VALUES (${contentId}, ${readCount}, ${favorite}, ${archived})
+            ON CONFLICT (content_id)
             DO UPDATE SET
               read_count = ${readCount},
               favorite = ${favorite},

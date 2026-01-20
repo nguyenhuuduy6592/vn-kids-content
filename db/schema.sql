@@ -11,21 +11,19 @@ CREATE TABLE IF NOT EXISTS content (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- User progress table: tracks read count, favorites, archived per user
--- Using device_id for anonymous users (no auth needed)
-CREATE TABLE IF NOT EXISTS user_progress (
+-- Content progress table: tracks read count, favorites, archived globally (shared by all users)
+-- Note: Will be expanded to user-based progress later
+CREATE TABLE IF NOT EXISTS content_progress (
   id SERIAL PRIMARY KEY,
-  device_id VARCHAR(255) NOT NULL,
   content_id INTEGER NOT NULL REFERENCES content(id) ON DELETE CASCADE,
   read_count INTEGER DEFAULT 0,
   favorite BOOLEAN DEFAULT FALSE,
   archived BOOLEAN DEFAULT FALSE,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(device_id, content_id)
+  UNIQUE(content_id)
 );
 
 -- Index for faster lookups
-CREATE INDEX IF NOT EXISTS idx_user_progress_device ON user_progress(device_id);
 CREATE INDEX IF NOT EXISTS idx_content_type ON content(type);
 
 -- Function to update updated_at timestamp
@@ -44,8 +42,8 @@ CREATE TRIGGER content_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at();
 
-DROP TRIGGER IF EXISTS user_progress_updated_at ON user_progress;
-CREATE TRIGGER user_progress_updated_at
-  BEFORE UPDATE ON user_progress
+DROP TRIGGER IF EXISTS content_progress_updated_at ON content_progress;
+CREATE TRIGGER content_progress_updated_at
+  BEFORE UPDATE ON content_progress
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at();

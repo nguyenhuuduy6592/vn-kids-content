@@ -14,31 +14,18 @@ export default async function handler(req, res) {
     const sql = getDb();
 
     if (req.method === 'GET') {
-      // Get all content with optional user progress
-      const deviceId = req.query.deviceId;
-
-      if (deviceId) {
-        // Join with user_progress for this device
-        const rows = await sql`
-          SELECT
-            c.id, c.title, c.type, c.content, c.created_at,
-            COALESCE(up.read_count, 0) as read_count,
-            COALESCE(up.favorite, false) as favorite,
-            COALESCE(up.archived, false) as archived
-          FROM content c
-          LEFT JOIN user_progress up ON c.id = up.content_id AND up.device_id = ${deviceId}
-          ORDER BY c.id
-        `;
-        return res.status(200).json(rows);
-      } else {
-        // Just get content without progress
-        const rows = await sql`
-          SELECT id, title, type, content, created_at
-          FROM content
-          ORDER BY id
-        `;
-        return res.status(200).json(rows);
-      }
+      // Get all content with global progress (shared by all users)
+      const rows = await sql`
+        SELECT
+          c.id, c.title, c.type, c.content, c.created_at,
+          COALESCE(cp.read_count, 0) as read_count,
+          COALESCE(cp.favorite, false) as favorite,
+          COALESCE(cp.archived, false) as archived
+        FROM content c
+        LEFT JOIN content_progress cp ON c.id = cp.content_id
+        ORDER BY c.id
+      `;
+      return res.status(200).json(rows);
     }
 
     if (req.method === 'POST') {
