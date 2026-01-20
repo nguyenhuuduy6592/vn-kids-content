@@ -71,6 +71,16 @@ const API = {
     return res.json();
   },
 
+  async updateContent(id, title, content) {
+    const res = await fetch(`${CONFIG.API_BASE}/content`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, title, content })
+    });
+    if (!res.ok) throw new Error('Failed to update content');
+    return res.json();
+  },
+
   async seedContent(items, deviceId) {
     const res = await fetch(`${CONFIG.API_BASE}/seed`, {
       method: 'POST',
@@ -194,7 +204,13 @@ export default function App() {
     API.updateProgress(deviceId, id, 'toggleArchive').catch(console.error);
   };
 
-  const updateItem = (id, updates) => updateContent(c => c.map(i => i.id === id ? { ...i, ...updates } : i));
+  const updateItem = (id, updates) => {
+    updateContent(c => c.map(i => i.id === id ? { ...i, ...updates } : i));
+    // Sync content changes to cloud
+    if (updates.title !== undefined || updates.content !== undefined) {
+      API.updateContent(id, updates.title, updates.content).catch(console.error);
+    }
+  };
 
   const addItem = async () => {
     if (!newItem.title.trim() || !newItem.content.trim()) return;
