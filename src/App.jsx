@@ -604,7 +604,7 @@ export default function App() {
 
       <button onClick={() => setShowAdd(true)} className="fixed bottom-6 right-6 w-14 h-14 bg-blue-500 rounded-full shadow-lg flex items-center justify-center text-white z-50"><Plus size={24} /></button>
 
-      {viewItem && <ViewModal item={viewItem} onClose={() => setViewItem(null)} onMarkRead={markRead} onToggleFavorite={toggleFavorite} onUpdateItem={updateItem} setViewItem={setViewItem} isDark={isDark} />}
+      {viewItem && <ViewModal item={viewItem} onClose={() => setViewItem(null)} onMarkRead={markRead} onToggleFavorite={toggleFavorite} onToggleArchive={toggleArchive} onUpdateItem={updateItem} setViewItem={setViewItem} isDark={isDark} />}
       {showAdd && <AddModal onAdd={addItem} onClose={() => setShowAdd(false)} newItem={newItem} setNewItem={setNewItem} isDark={isDark} />}
       {showImport && <ImportModal onImport={importSeed} onClose={() => setShowImport(false)} isDark={isDark} />}
       {showClearConfirm && <ClearConfirmModal onConfirm={handleClearAll} onClose={() => setShowClearConfirm(false)} isDark={isDark} />}
@@ -617,7 +617,7 @@ export default function App() {
 // ============================================================
 // MODAL COMPONENTS
 // ============================================================
-function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, setViewItem, isDark }) {
+function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onToggleArchive, onUpdateItem, setViewItem, isDark }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(item.title);
   const [editContent, setEditContent] = useState(item.content);
@@ -783,6 +783,7 @@ function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onUpdateItem, 
             <>
               <button onClick={() => { onMarkRead(item.id); onClose(); }} className="flex-1 py-3 rounded-xl bg-green-500 text-white font-medium flex items-center justify-center gap-2"><Check size={18} /> Đã đọc/hát</button>
               <button onClick={() => onToggleFavorite(item.id)} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}><Star size={20} className={item.favorite ? "text-yellow-500 fill-yellow-500" : textSecondary} /></button>
+              <button onClick={() => { onToggleArchive(item.id); setViewItem({ ...item, archived: !item.archived }); }} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`} title={item.archived ? "Bỏ lưu trữ" : "Lưu trữ"}>{item.archived ? <RotateCcw size={20} className="text-amber-500" /> : <Archive size={20} className={textSecondary} />}</button>
               <button onClick={() => { const firstLine = item.content.split('\n').find(l => l.trim())?.trim() || ''; const keyword = item.type === 'story' ? 'truyện' : 'lời'; window.open(`https://www.google.com/search?q=${encodeURIComponent(item.title + ' ' + firstLine + ' ' + keyword)}`, '_blank'); }} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`} title="Tìm trên Google"><ExternalLink size={20} className="text-blue-500" /></button>
             </>
           )}
