@@ -1,83 +1,170 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download } from 'lucide-react';
+import { Plus, Search, Star, Archive, BookOpen, Music, FileText, Shuffle, X, Check, Moon, Sun, RotateCcw, Eye, Loader, RefreshCw, Upload, Download, Pencil, ExternalLink, ClipboardPaste, Trash2 } from 'lucide-react';
+import { useRegisterSW } from 'virtual:pwa-register/react';
 
 // ============================================================
-// CONFIG - For Vite: change these settings
+// CONFIG
 // ============================================================
 const CONFIG = {
   STORAGE_KEY: 'vn-kids-content',
   VERSION: 1,
-  // For Vite: set to '/data/seed.json' and fetch instead
-  USE_EXTERNAL_SEED: false,
-  SEED_URL: null,
+  API_BASE: '/api',
+  CACHE_MAX_AGE: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
 };
 
 // ============================================================
-// SEED DATA
-// For Claude Artifact: Use Import button to load JSON
-// For Vite: Move to public/data/seed.json and fetch
-// Format: [[id, title, type, content], ...]
-// type: 0=song, 1=poem, 2=story
-// ============================================================
-
-// ============================================================
-// STORAGE LAYER - Uses window.storage (Claude) or localStorage (Vite)
+// STORAGE LAYER - localStorage for offline/fallback
 // ============================================================
 const Storage = {
-  async get(key) {
+  get(key) {
     try {
-      if (window.storage) {
-        const r = await window.storage.get(key);
-        return r?.value ? JSON.parse(r.value) : null;
-      }
       const v = localStorage.getItem(key);
       return v ? JSON.parse(v) : null;
     } catch { return null; }
   },
-  async set(key, value) {
+  set(key, value) {
     try {
-      const json = JSON.stringify(value);
-      if (window.storage) await window.storage.set(key, json);
-      else localStorage.setItem(key, json);
+      localStorage.setItem(key, JSON.stringify(value));
       return true;
     } catch { return false; }
   }
 };
 
 // ============================================================
+// API LAYER - Neon database via Vercel serverless
+// ============================================================
+const API = {
+  async fetchContent() {
+    const res = await fetch(`${CONFIG.API_BASE}/content`);
+    if (!res.ok) throw new Error('Failed to fetch content');
+    return res.json();
+  },
+
+  async updateProgress(contentId, action, value) {
+    const res = await fetch(`${CONFIG.API_BASE}/progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contentId, action, value })
+    });
+    if (!res.ok) throw new Error('Failed to update progress');
+    return res.json();
+  },
+
+  async addContent(title, type, content) {
+    const res = await fetch(`${CONFIG.API_BASE}/content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, type, content })
+    });
+    if (!res.ok) throw new Error('Failed to add content');
+    return res.json();
+  },
+
+  async updateContent(id, title, content) {
+    const res = await fetch(`${CONFIG.API_BASE}/content`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, title, content })
+    });
+    if (!res.ok) throw new Error('Failed to update content');
+    return res.json();
+  },
+
+  async seedContent(items) {
+    const res = await fetch(`${CONFIG.API_BASE}/seed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items })
+    });
+    if (!res.ok) throw new Error('Failed to seed content');
+    return res.json();
+  },
+
+  async clearAll() {
+    const res = await fetch(`${CONFIG.API_BASE}/clear`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Failed to clear data');
+    return res.json();
+  }
+};
+
+// ============================================================
 // DATA LAYER
 // ============================================================
-const TYPES = ['song', 'poem', 'story'];
-const expandItem = ([id, title, type, content]) => ({
-  id, title, type: TYPES[type], content, readCount: 0, archived: false, favorite: false
-});
+
+// Deduplicate items by ID first, then by title+type for items without proper IDs
+function deduplicateItems(items) {
+  const seenIds = new Set();
+  const seenTitleType = new Set();
+  const result = [];
+
+  for (const item of items) {
+    // Skip if we've seen this ID (unless it's a temporary ID)
+    const isTemporaryId = typeof item.id === 'number' && item.id > 1000000000000; // Date.now() style IDs
+
+    if (!isTemporaryId && seenIds.has(item.id)) {
+      continue;
+    }
+
+    // Check for title+type duplicates
+    const titleTypeKey = `${item.title?.toLowerCase().trim()}|${item.type}`;
+    if (seenTitleType.has(titleTypeKey)) {
+      continue;
+    }
+
+    seenIds.add(item.id);
+    seenTitleType.add(titleTypeKey);
+    result.push(item);
+  }
+
+  return result;
+}
 
 async function loadData() {
-  // Try loading user data from storage
-  const stored = await Storage.get(CONFIG.STORAGE_KEY);
+  try {
+    // Try API first
+    const items = await API.fetchContent();
+    if (items?.length) {
+      // Transform API response to app format
+      const transformed = items.map(item => ({
+        id: item.id,
+        title: item.title,
+        type: item.type,
+        content: item.content,
+        readCount: item.read_count || 0,
+        favorite: item.favorite || false,
+        archived: item.archived || false
+      }));
+      // Deduplicate to prevent showing duplicate entries
+      const deduplicated = deduplicateItems(transformed);
+      // Cache locally for offline with timestamp
+      Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items: deduplicated, timestamp: Date.now() });
+      return deduplicated;
+    }
+  } catch (e) {
+    console.warn('API fetch failed, using local storage:', e);
+  }
+
+  // Fallback to localStorage (only if cache is not expired)
+  const stored = Storage.get(CONFIG.STORAGE_KEY);
   if (stored?.version === CONFIG.VERSION && stored?.items?.length) {
-    return stored.items;
+    // Check if cache is expired
+    const isExpired = stored.timestamp && (Date.now() - stored.timestamp > CONFIG.CACHE_MAX_AGE);
+    if (isExpired) {
+      console.warn('Local cache expired, clearing...');
+      localStorage.removeItem(CONFIG.STORAGE_KEY);
+      return [];
+    }
+    // Also deduplicate localStorage data
+    return deduplicateItems(stored.items);
   }
-  
-  // For Vite: fetch seed from JSON file
-  if (CONFIG.USE_EXTERNAL_SEED && CONFIG.SEED_URL) {
-    try {
-      const res = await fetch(CONFIG.SEED_URL);
-      const seed = await res.json();
-      if (seed?.length) {
-        const items = seed.map(expandItem);
-        await Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items });
-        return items;
-      }
-    } catch (e) { console.error('Failed to fetch seed:', e); }
-  }
-  
-  // For Claude Artifact: return empty, user will import via UI
+
   return [];
 }
 
-async function saveData(items) {
-  await Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items });
+function saveDataLocal(items) {
+  Storage.set(CONFIG.STORAGE_KEY, { version: CONFIG.VERSION, items, timestamp: Date.now() });
 }
 
 // ============================================================
@@ -89,6 +176,46 @@ const typeConfig = {
   story: { icon: BookOpen, label: "Truyện", color: "text-amber-500", bg: "bg-amber-100 dark:bg-amber-900/30" }
 };
 
+// ============================================================
+// FULLSCREEN LOADER COMPONENT
+// ============================================================
+function FullscreenLoader({ message, isDark }) {
+  const bgOverlay = isDark ? "bg-zinc-950/90" : "bg-zinc-50/90";
+  const textPrimary = isDark ? "text-zinc-100" : "text-zinc-900";
+
+  return (
+    <div className={`fixed inset-0 z-[100] ${bgOverlay} flex flex-col items-center justify-center backdrop-blur-sm`}>
+      <Loader className="animate-spin text-blue-500 mb-4" size={40} />
+      {message && <p className={`text-sm ${textPrimary} animate-pulse`}>{message}</p>}
+    </div>
+  );
+}
+
+// ============================================================
+// UPDATE PROMPT COMPONENT - Shows when new version is available
+// ============================================================
+function UpdatePrompt({ onUpdate, isDark }) {
+  const bgCard = isDark ? "bg-zinc-800" : "bg-white";
+  const textPrimary = isDark ? "text-zinc-100" : "text-zinc-900";
+
+  return (
+    <div className={`fixed bottom-20 left-4 right-4 z-[60] ${bgCard} rounded-xl shadow-lg p-4 border ${isDark ? "border-zinc-700" : "border-zinc-200"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <RefreshCw size={20} className="text-blue-500" />
+          <p className={`text-sm ${textPrimary}`}>Phiên bản mới!</p>
+        </div>
+        <button
+          onClick={onUpdate}
+          className="px-4 py-2 bg-blue-500 text-white text-sm font-medium rounded-lg"
+        >
+          Cập nhật
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [content, setContent] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -98,10 +225,28 @@ export default function App() {
   const [viewItem, setViewItem] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [newItem, setNewItem] = useState({ title: "", content: "", type: "song" });
   const [theme, setTheme] = useState("light");
+  const [operationLoading, setOperationLoading] = useState({ active: false, message: "" });
 
   const isDark = theme === "dark";
+
+  // Service worker update detection
+  const {
+    needRefresh: [needRefresh],
+    updateServiceWorker,
+  } = useRegisterSW({
+    onRegistered(r) {
+      // Check for updates every 5 minutes
+      if (r) {
+        setInterval(() => r.update(), 5 * 60 * 1000);
+      }
+    },
+    onRegisterError(error) {
+      console.error('SW registration error:', error);
+    },
+  });
 
   // Load data on mount
   useEffect(() => {
@@ -111,10 +256,10 @@ export default function App() {
     });
   }, []);
 
-  // Save on changes (debounced)
+  // Save locally on changes (debounced) - API syncs on actions
   useEffect(() => {
     if (!loading && content.length) {
-      const t = setTimeout(() => saveData(content), 500);
+      const t = setTimeout(() => saveDataLocal(content), 500);
       return () => clearTimeout(t);
     }
   }, [content, loading]);
@@ -137,15 +282,77 @@ export default function App() {
     });
   }, [content, search, filter, showArchived]);
 
-  const markRead = (id) => updateContent(c => c.map(i => i.id === id ? { ...i, readCount: i.readCount + 1 } : i));
-  const toggleFavorite = (id) => updateContent(c => c.map(i => i.id === id ? { ...i, favorite: !i.favorite } : i));
-  const toggleArchive = (id) => updateContent(c => c.map(i => i.id === id ? { ...i, archived: !i.archived } : i));
-  
-  const addItem = () => {
+  const markRead = (id) => {
+    updateContent(c => c.map(i => i.id === id ? { ...i, readCount: i.readCount + 1 } : i));
+    API.updateProgress(id, 'markRead').catch(console.error);
+  };
+
+  const toggleFavorite = (id) => {
+    updateContent(c => c.map(i => i.id === id ? { ...i, favorite: !i.favorite } : i));
+    API.updateProgress(id, 'toggleFavorite').catch(console.error);
+  };
+
+  const toggleArchive = (id) => {
+    updateContent(c => c.map(i => i.id === id ? { ...i, archived: !i.archived } : i));
+    API.updateProgress(id, 'toggleArchive').catch(console.error);
+  };
+
+  const updateItem = async (id, updates) => {
+    // Show fullscreen loading for content updates (title/content changes)
+    const isContentUpdate = updates.title !== undefined || updates.content !== undefined;
+    if (isContentUpdate) {
+      setOperationLoading({ active: true, message: "Đang cập nhật..." });
+    }
+
+    updateContent(c => c.map(i => i.id === id ? { ...i, ...updates } : i));
+
+    // Sync content changes to cloud
+    if (isContentUpdate) {
+      try {
+        await API.updateContent(id, updates.title, updates.content);
+      } catch (e) {
+        console.error('Failed to update content:', e);
+      } finally {
+        setOperationLoading({ active: false, message: "" });
+      }
+    }
+  };
+
+  const addItem = async () => {
     if (!newItem.title.trim() || !newItem.content.trim()) return;
-    updateContent(c => [...c, { ...newItem, id: Date.now(), readCount: 0, archived: false, favorite: false }]);
-    setNewItem({ title: "", content: "", type: "song" });
+
+    // Check for duplicate before adding
+    const titleLower = newItem.title.trim().toLowerCase();
+    const exists = content.some(
+      item => item.title.toLowerCase().trim() === titleLower && item.type === newItem.type
+    );
+    if (exists) {
+      alert('Nội dung với tiêu đề và loại này đã tồn tại!');
+      return;
+    }
+
+    // Show fullscreen loading
+    setOperationLoading({ active: true, message: "Đang thêm nội dung..." });
     setShowAdd(false);
+
+    try {
+      const created = await API.addContent(newItem.title.trim(), newItem.type, newItem.content.trim());
+      updateContent(c => [...c, {
+        id: created.id,
+        title: created.title,
+        type: created.type,
+        content: created.content,
+        readCount: 0,
+        archived: false,
+        favorite: false
+      }]);
+    } catch (e) {
+      console.error('Failed to add via API, adding locally:', e);
+      updateContent(c => [...c, { ...newItem, id: Date.now(), readCount: 0, archived: false, favorite: false }]);
+    } finally {
+      setOperationLoading({ active: false, message: "" });
+    }
+    setNewItem({ title: "", content: "", type: "song" });
   };
 
   const importSeed = async (jsonText) => {
@@ -159,6 +366,12 @@ export default function App() {
         // Safe here since user controls the input
         data = (new Function('return ' + jsonText))();
       }
+
+      // Handle versioned export format
+      if (data.version && data.items) {
+        data = data.items;
+      }
+
       const items = data.map(item => ({
         id: item.id || Date.now() + Math.random(),
         title: item.title || "",
@@ -168,10 +381,33 @@ export default function App() {
         archived: item.archived || false,
         favorite: item.favorite || false,
       }));
-      setContent(items);
+
+      // Deduplicate imported items before processing
+      const deduplicatedItems = deduplicateItems(items);
+
+      // Show fullscreen loading
+      setOperationLoading({ active: true, message: "Đang nhập dữ liệu..." });
       setShowImport(false);
+
+      // Try to sync to API
+      try {
+        await API.seedContent(deduplicatedItems);
+        // Reload from API to get proper IDs (loadData already deduplicates)
+        const refreshed = await loadData();
+        setContent(refreshed);
+      } catch (e) {
+        console.warn('API seed failed, using local only:', e);
+        // Merge with existing content instead of replacing to avoid data loss
+        setContent(prev => {
+          const combined = [...prev, ...deduplicatedItems];
+          return deduplicateItems(combined);
+        });
+      } finally {
+        setOperationLoading({ active: false, message: "" });
+      }
     } catch (e) {
       console.error('Import error:', e);
+      setOperationLoading({ active: false, message: "" });
       alert('Import failed: ' + e.message);
     }
   };
@@ -210,6 +446,27 @@ export default function App() {
       alert('Xuất dữ liệu thất bại: ' + error.message);
     }
   }, [content]);
+
+  const handleClearAll = useCallback(async () => {
+    // Show fullscreen loading
+    setOperationLoading({ active: true, message: "Đang xóa dữ liệu..." });
+    setShowClearConfirm(false);
+
+    try {
+      // Clear database first
+      await API.clearAll();
+    } catch (e) {
+      console.warn('Failed to clear database:', e);
+    }
+    // Clear localStorage
+    localStorage.removeItem(CONFIG.STORAGE_KEY);
+    // Reset state
+    setContent([]);
+    setSearch("");
+    setFilter("all");
+    setShowArchived(false);
+    setOperationLoading({ active: false, message: "" });
+  }, []);
 
   const randomPick = () => {
     const available = filteredContent.filter(i => !i.archived);
@@ -253,6 +510,7 @@ export default function App() {
           <Upload size={18} /> Nhập dữ liệu
         </button>
         {showImport && <ImportModal onImport={importSeed} onClose={() => setShowImport(false)} isDark={isDark} />}
+        {operationLoading.active && <FullscreenLoader message={operationLoading.message} isDark={isDark} />}
       </div>
     );
   }
@@ -263,7 +521,7 @@ export default function App() {
       <div className={`sticky top-0 z-40 ${bgCard} border-b ${border} px-4 pt-4 pb-3`}>
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h1 className="text-lg font-semibold">Kho nội dung bé yêu</h1>
+            <h1 className="text-lg font-semibold flex items-center gap-2">Kho nội dung bé yêu <span className={`text-xs font-normal px-1.5 py-0.5 rounded ${isDark ? "bg-zinc-700 text-zinc-400" : "bg-zinc-200 text-zinc-500"}`}>v{__APP_VERSION__.split('.')[0]}</span></h1>
             <p className={`text-xs ${textSecondary}`}>{stats.total} mục • {stats.songs} hát • {stats.poems} thơ • {stats.stories} truyện</p>
           </div>
           <div className="flex gap-2">
@@ -334,11 +592,24 @@ export default function App() {
         })}
       </div>
 
+      {/* Clear All Button */}
+      <div className="px-4 pt-6 pb-4">
+        <button
+          onClick={() => setShowClearConfirm(true)}
+          className={`w-full py-3 rounded-xl flex items-center justify-center gap-2 ${isDark ? "bg-red-900/30 text-red-400 border border-red-900" : "bg-red-50 text-red-600 border border-red-200"} text-sm font-medium`}
+        >
+          <Trash2 size={16} /> Xóa tất cả dữ liệu
+        </button>
+      </div>
+
       <button onClick={() => setShowAdd(true)} className="fixed bottom-6 right-6 w-14 h-14 bg-blue-500 rounded-full shadow-lg flex items-center justify-center text-white z-50"><Plus size={24} /></button>
 
-      {viewItem && <ViewModal item={viewItem} onClose={() => setViewItem(null)} onMarkRead={markRead} onToggleFavorite={toggleFavorite} isDark={isDark} />}
+      {viewItem && <ViewModal item={viewItem} onClose={() => setViewItem(null)} onMarkRead={markRead} onToggleFavorite={toggleFavorite} onToggleArchive={toggleArchive} onUpdateItem={updateItem} setViewItem={setViewItem} isDark={isDark} />}
       {showAdd && <AddModal onAdd={addItem} onClose={() => setShowAdd(false)} newItem={newItem} setNewItem={setNewItem} isDark={isDark} />}
       {showImport && <ImportModal onImport={importSeed} onClose={() => setShowImport(false)} isDark={isDark} />}
+      {showClearConfirm && <ClearConfirmModal onConfirm={handleClearAll} onClose={() => setShowClearConfirm(false)} isDark={isDark} />}
+      {operationLoading.active && <FullscreenLoader message={operationLoading.message} isDark={isDark} />}
+      {needRefresh && <UpdatePrompt onUpdate={() => updateServiceWorker(true)} isDark={isDark} />}
     </div>
   );
 }
@@ -346,30 +617,176 @@ export default function App() {
 // ============================================================
 // MODAL COMPONENTS
 // ============================================================
-function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, isDark }) {
+function ViewModal({ item, onClose, onMarkRead, onToggleFavorite, onToggleArchive, onUpdateItem, setViewItem, isDark }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(item.title);
+  const [editContent, setEditContent] = useState(item.content);
+  const [showPasteInput, setShowPasteInput] = useState(false);
+  const [pasteError, setPasteError] = useState('');
+
   const cfg = typeConfig[item.type] || typeConfig.poem;
   const bgCard = isDark ? "bg-zinc-900" : "bg-white";
   const textPrimary = isDark ? "text-zinc-100" : "text-zinc-900";
   const textSecondary = isDark ? "text-zinc-400" : "text-zinc-500";
   const border = isDark ? "border-zinc-800" : "border-zinc-200";
-  
+
+  // Detect iOS
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  const handleSave = () => {
+    if (!editTitle.trim() || !editContent.trim()) return;
+    onUpdateItem(item.id, { title: editTitle.trim(), content: editContent.trim() });
+    setViewItem({ ...item, title: editTitle.trim(), content: editContent.trim() });
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setEditTitle(item.title);
+    setEditContent(item.content);
+    setIsEditing(false);
+    setShowPasteInput(false);
+    setPasteError('');
+  };
+
+  const handlePaste = async () => {
+    setPasteError('');
+
+    try {
+      // Call clipboard API immediately without permission pre-check
+      // Safari will show native "Paste" callout bar for user to confirm
+      // Important: Don't do async work before this call or it breaks the user gesture chain
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setEditContent(text);
+      }
+    } catch (err) {
+      console.error('Failed to read clipboard:', err);
+
+      // On iOS/Safari, if user dismisses the paste callout or permission denied
+      // Show helpful message and fallback input
+      if (isIOS) {
+        setPasteError('Nhấn "Dán" trên thanh popup hoặc dán thủ công bên dưới');
+      } else {
+        setPasteError('Không thể đọc clipboard');
+      }
+      setShowPasteInput(true);
+    }
+  };
+
+  const handlePasteInputChange = (e) => {
+    const text = e.target.value;
+    if (text) {
+      setEditContent(text);
+      setShowPasteInput(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50" onClick={isEditing ? undefined : onClose} />
       <div className={`relative w-full max-w-lg max-h-[85vh] ${bgCard} rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col`}>
         <div className={`p-4 border-b ${border} flex items-center justify-between`}>
-          <div className="flex items-center gap-2">
-            <span className={`px-2 py-1 rounded-full text-xs ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
-            <h2 className={`font-semibold text-sm ${textPrimary}`}>{item.title}</h2>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className={`px-2 py-1 rounded-full text-xs ${cfg.bg} ${cfg.color} shrink-0`}>{cfg.label}</span>
+            {isEditing ? (
+              <input
+                type="text"
+                value={editTitle}
+                onChange={e => setEditTitle(e.target.value)}
+                className={`flex-1 px-2 py-1 rounded-lg ${isDark ? "bg-zinc-800" : "bg-zinc-100"} outline-none text-sm font-semibold ${textPrimary}`}
+                placeholder="Tiêu đề..."
+                autoFocus
+              />
+            ) : (
+              <h2 className={`font-semibold text-sm ${textPrimary} truncate`}>{item.title}</h2>
+            )}
           </div>
-          <button onClick={onClose} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}><X size={18} className={textPrimary} /></button>
+          <div className="flex items-center gap-1 shrink-0">
+            {!isEditing && (
+              <button onClick={() => setIsEditing(true)} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}>
+                <Pencil size={16} className={textSecondary} />
+              </button>
+            )}
+            <button onClick={isEditing ? handleCancel : onClose} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}>
+              <X size={18} className={textPrimary} />
+            </button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
-          <pre className={`whitespace-pre-wrap font-sans text-base leading-relaxed ${textPrimary}`}>{item.content}</pre>
+          {isEditing ? (
+            <div className="h-full flex flex-col">
+              <div className="flex flex-col gap-2 mb-2">
+                <div className="flex justify-end items-center gap-2">
+                  {pasteError && (
+                    <span className="text-red-500 text-xs">{pasteError}</span>
+                  )}
+                  <button
+                    onClick={handlePaste}
+                    className="px-3 py-1.5 rounded-lg bg-blue-500 text-white flex items-center gap-1.5 text-sm
+                      hover:bg-blue-600 active:bg-blue-700 active:scale-95
+                      focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2
+                      transition-all duration-150 ease-in-out
+                      shadow-sm hover:shadow-md"
+                    title="Dán từ clipboard"
+                  >
+                    <ClipboardPaste size={14} /> Dán
+                  </button>
+                </div>
+                {showPasteInput && (
+                  <div className={`flex items-center gap-2 p-2 rounded-lg ${isDark ? "bg-zinc-800" : "bg-zinc-100"} border ${isDark ? "border-zinc-700" : "border-zinc-300"}`}>
+                    <input
+                      type="text"
+                      placeholder="Nhấn giữ và chọn Dán tại đây..."
+                      onChange={handlePasteInputChange}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const text = e.clipboardData.getData('text');
+                        if (text) {
+                          setEditContent(text);
+                          setShowPasteInput(false);
+                        }
+                      }}
+                      className={`flex-1 px-2 py-1 rounded bg-transparent outline-none text-sm ${textPrimary}`}
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => setShowPasteInput(false)}
+                      className={`p-1 rounded ${isDark ? "hover:bg-zinc-700" : "hover:bg-zinc-200"} transition-colors`}
+                    >
+                      <X size={14} className={textSecondary} />
+                    </button>
+                  </div>
+                )}
+              </div>
+              <textarea
+                value={editContent}
+                onChange={e => setEditContent(e.target.value)}
+                className={`w-full flex-1 min-h-[200px] px-3 py-2 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"} outline-none resize-none text-base leading-relaxed ${textPrimary}`}
+                placeholder="Nội dung..."
+              />
+            </div>
+          ) : (
+            <pre className={`whitespace-pre-wrap font-sans text-base leading-relaxed ${textPrimary}`}>{item.content}</pre>
+          )}
         </div>
         <div className={`p-4 border-t ${border} flex gap-2`}>
-          <button onClick={() => { onMarkRead(item.id); onClose(); }} className="flex-1 py-3 rounded-xl bg-green-500 text-white font-medium flex items-center justify-center gap-2"><Check size={18} /> Đã đọc/hát</button>
-          <button onClick={() => onToggleFavorite(item.id)} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}><Star size={20} className={item.favorite ? "text-yellow-500 fill-yellow-500" : textSecondary} /></button>
+          {isEditing ? (
+            <>
+              <button onClick={handleCancel} className={`flex-1 py-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-200"} font-medium flex items-center justify-center gap-2 ${textPrimary}`}>
+                <X size={18} /> Hủy
+              </button>
+              <button onClick={handleSave} disabled={!editTitle.trim() || !editContent.trim()} className="flex-1 py-3 rounded-xl bg-blue-500 text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50">
+                <Check size={18} /> Lưu
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => { onMarkRead(item.id); onClose(); }} className="flex-1 py-3 rounded-xl bg-green-500 text-white font-medium flex items-center justify-center gap-2"><Check size={18} /> Đã đọc/hát</button>
+              <button onClick={() => onToggleFavorite(item.id)} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}><Star size={20} className={item.favorite ? "text-yellow-500 fill-yellow-500" : textSecondary} /></button>
+              <button onClick={() => { onToggleArchive(item.id); setViewItem({ ...item, archived: !item.archived }); }} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`} title={item.archived ? "Bỏ lưu trữ" : "Lưu trữ"}>{item.archived ? <RotateCcw size={20} className="text-amber-500" /> : <Archive size={20} className={textSecondary} />}</button>
+              <button onClick={() => { const firstLine = item.content.split('\n').find(l => l.trim())?.trim() || ''; const keyword = item.type === 'story' ? 'truyện' : 'lời'; window.open(`https://www.google.com/search?q=${encodeURIComponent(item.title + ' ' + firstLine + ' ' + keyword)}`, '_blank'); }} className={`p-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`} title="Tìm trên Google"><ExternalLink size={20} className="text-blue-500" /></button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -450,6 +867,51 @@ function ImportModal({ onImport, onClose, isDark }) {
         </div>
         <div className={`p-4 border-t ${border}`}>
           <button onClick={() => onImport(text)} disabled={!text.trim()} className="w-full py-3 rounded-xl bg-blue-500 text-white font-medium disabled:opacity-50">Nhập</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClearConfirmModal({ onConfirm, onClose, isDark }) {
+  const bgCard = isDark ? "bg-zinc-900" : "bg-white";
+  const textPrimary = isDark ? "text-zinc-100" : "text-zinc-900";
+  const textSecondary = isDark ? "text-zinc-400" : "text-zinc-500";
+  const border = isDark ? "border-zinc-800" : "border-zinc-200";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className={`relative w-full max-w-md ${bgCard} rounded-t-3xl sm:rounded-3xl overflow-hidden`}>
+        <div className={`p-4 border-b ${border} flex items-center justify-between`}>
+          <div className="flex items-center gap-2">
+            <div className={`p-2 rounded-full ${isDark ? "bg-red-900/30" : "bg-red-100"}`}>
+              <Trash2 size={18} className="text-red-500" />
+            </div>
+            <h2 className={`font-semibold ${textPrimary}`}>Xác nhận xóa</h2>
+          </div>
+          <button onClick={onClose} className={`p-2 rounded-full ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}>
+            <X size={18} className={textPrimary} />
+          </button>
+        </div>
+        <div className="p-4">
+          <p className={`text-sm ${textSecondary} mb-4`}>
+            Bạn có chắc chắn muốn xóa tất cả dữ liệu? Hành động này sẽ xóa toàn bộ nội dung đã lưu và không thể hoàn tác.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className={`flex-1 py-3 rounded-xl ${isDark ? "bg-zinc-800" : "bg-zinc-200"} font-medium ${textPrimary}`}
+            >
+              Hủy
+            </button>
+            <button
+              onClick={onConfirm}
+              className="flex-1 py-3 rounded-xl bg-red-500 text-white font-medium"
+            >
+              Xóa tất cả
+            </button>
+          </div>
         </div>
       </div>
     </div>

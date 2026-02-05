@@ -1,0 +1,45 @@
+import { getDb } from './db.js';
+
+export default async function handler(req, res) {
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Prevent browser caching of API responses
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'DELETE') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const sql = getDb();
+
+    // Delete all global progress first (due to foreign key constraint)
+    const progressResult = await sql`
+      DELETE FROM content_progress
+      RETURNING *
+    `;
+
+    // Delete all content
+    const contentResult = await sql`
+      DELETE FROM content
+      RETURNING *
+    `;
+
+    return res.status(200).json({
+      success: true,
+      deletedProgress: progressResult.length,
+      deletedContent: contentResult.length
+    });
+  } catch (error) {
+    console.error('API Error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
